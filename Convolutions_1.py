@@ -83,277 +83,115 @@ msg='With original weights: train loss {:.2f}, train acc {:.2f}, valid loss {:.2
                                                                                                  )
 print(msg)
 
-# HYPERPARAMETERS
 
-eta = .001
-num_epochs = 5
+def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
 
-# RUN THE MODEL
+    for epoch in range(num_epochs):
+        train_loss = averager()
+        train_accuracy = averager()
 
-np.random.seed(42)
-W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
-W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+        for i in range(len(y_train)):
 
-print('Training the model')
+            # Take a random sample
+            k = np.random.randint(len(y_train))
+            X = X_train[k]
+            y = y_train[k]
+            if (i + 1) % 100 == 0:
+                sys.stdout.write('{}\r'.format(i+1))
 
-for epoch in range(num_epochs):
-    train_loss = averager()
-    train_accuracy = averager()
+            # First layer is just the input
+            l0 = X
 
-    for i in range(len(y_train)):
+            # Embed the image in a bigger image. It would be useful in computing corrections to the
+            # convolution
+            # filter
+            lt0 = np.zeros((l0.shape[0] + K - 1, l0.shape[1] + K - 1))
+            lt0[K // 2:-K // 2 + 1, K // 2:-K // 2 + 1] = l0
 
-        # Take a random sample
-        k = np.random.randint(len(y_train))
-        X = X_train[k]
-        y = y_train[k]
-        if (i + 1) % 100 == 0:
-            sys.stdout.write('{}\r'.format(i+1))
+            # convolve with the filter
+            l0_conv = convolve(l0, W1[::-1, ::-1], 'same', 'direct')
 
-        # First layer is just the input
-        l0 = X
+            # Layer one is Relu applied on the convolution
+            l1 = relu(l0_conv)
 
-        # Embed the image in a bigger image. It would be useful in computing corrections to the
-        # convolution
-        # filter
-        lt0 = np.zeros((l0.shape[0] + K - 1, l0.shape[1] + K - 1))
-        lt0[K // 2:-K // 2 + 1, K // 2:-K // 2 + 1] = l0
+            # Also compute derivative of layer 1
+            f1p = relu_prime(l0_conv)
 
-        # convolve with the filter
-        l0_conv = convolve(l0, W1[::-1, ::-1], 'same', 'direct')
+            # Compute layer 2
+            l2 = sigmoid(np.dot(l1.reshape(-1, ), W2))
+            l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
 
-        # Layer one is Relu applied on the convolution
-        l1 = relu(l0_conv)
+            # Loss and Accuracy
+            loss = -(y * np.log(l2) + (1 - y) * np.log(1 - l2))
+            accuracy = int(y == np.where(l2 > 0.5, 1, 0))
 
-        # Also compute derivative of layer 1
-        f1p = relu_prime(l0_conv)
+            # Save the loss and accuracy to a running averager
+            train_loss.send(loss)
+            train_accuracy.send(accuracy)
 
-        # Compute layer 2
-        l2 = sigmoid(np.dot(l1.reshape(-1, ), W2))
-        l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
+            # Derivative of loss wrt the dense layer
+            dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1).reshape(-1, )
 
-        # Loss and Accuracy
-        loss = -(y * np.log(l2) + (1 - y) * np.log(1 - l2))
-        accuracy = int(y == np.where(l2 > 0.5, 1, 0))
+            # Derivative of loss wrt the output of the first layer
+            dl1 = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(28, 28)
 
-        # Save the loss and accuracy to a running averager
-        train_loss.send(loss)
-        train_accuracy.send(accuracy)
+            # Derivative of the loss wrt the convolution filter
+            dl1_f1p = dl1 * f1p
+            dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
+                             for beta in range(K)] \
+                            for alpha in range(K)])
 
-        # Derivative of loss wrt the dense layer
-        dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1).reshape(-1, )
+            if update_W2:
+                W2 += -eta * dW2
+            if update_W1:
+                W1 += -eta * dW1
 
-        # Derivative of loss wrt the output of the first layer
-        dl1 = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(28, 28)
+        loss_averager_valid = averager()
+        accuracy_averager_valid = averager()
 
-        # Derivative of the loss wrt the convolution filter
-        dl1_f1p = dl1 * f1p
-        dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
-                         for beta in range(K)] \
-                        for alpha in range(K)])
+        for X, y in zip(X_valid, y_valid):
+            accuracy, loss = forward_pass(W1, W2, X, y)
+            loss_averager_valid.send(loss)
+            accuracy_averager_valid.send(accuracy)
 
-        W2 += -eta * dW2
-        W1 += -eta * dW1
+        train_loss, train_accuracy, valid_loss, valid_accuracy = map(extract_averager_value, [
+            train_loss,
+            train_accuracy,
+            loss_averager_valid,
+            accuracy_averager_valid]
+                                                                     )
+        msg = 'Epoch {}: train loss {:.2f}, train acc {:.2f}, valid loss {:.2f}, valid acc {' \
+              ':.2f}'.format(
+            epoch + 1,
+            train_loss,
+            train_accuracy,
+            valid_loss,
+            valid_accuracy
+            )
+        print(msg)
 
-    loss_averager_valid = averager()
-    accuracy_averager_valid = averager()
-
-    for X, y in zip(X_valid, y_valid):
-        accuracy, loss = forward_pass(W1, W2, X, y)
-        loss_averager_valid.send(loss)
-        accuracy_averager_valid.send(accuracy)
-
-    train_loss, train_accuracy, valid_loss, valid_accuracy = map(extract_averager_value, [
-        train_loss,
-        train_accuracy,
-        loss_averager_valid,
-        accuracy_averager_valid]
-                                                                 )
-    msg = 'Epoch {}: train loss {:.2f}, train acc {:.2f}, valid loss {:.2f}, valid acc {' \
-          ':.2f}'.format(
-        epoch + 1,
-        train_loss,
-        train_accuracy,
-        valid_loss,
-        valid_accuracy
-        )
-    print(msg)
-
-# RUN THE MODEL WITH CONVOLUTION FILTER WEIGHTS FROZEN
+# TRAIN THE MODEL
 
 np.random.seed(42)
 W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
 W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+print('*'*25,'Training the model','*'*25)
+train_model(W1,W2)
 
-print('Training the model with convolutional filter weights frozen')
 
-for epoch in range(num_epochs):
-    train_loss = averager()
-    train_accuracy = averager()
-
-    for i in range(len(y_train)):
-
-        # Take a random sample
-        k = np.random.randint(len(y_train))
-        X = X_train[k]
-        y = y_train[k]
-        if (i + 1) % 100 == 0:
-            sys.stdout.write('{}\r'.format(i+1))
-
-        # First layer is just the input
-        l0 = X
-
-        # Embed the image in a bigger image. It would be useful in computing corrections to the
-        # convolution
-        # filter
-        lt0 = np.zeros((l0.shape[0] + K - 1, l0.shape[1] + K - 1))
-        lt0[K // 2:-K // 2 + 1, K // 2:-K // 2 + 1] = l0
-
-        # convolve with the filter
-        l0_conv = convolve(l0, W1[::-1, ::-1], 'same', 'direct')
-
-        # Layer one is Relu applied on the convolution
-        l1 = relu(l0_conv)
-
-        # Also compute derivative of layer 1
-        f1p = relu_prime(l0_conv)
-
-        # Compute layer 2
-        l2 = sigmoid(np.dot(l1.reshape(-1, ), W2))
-        l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
-
-        # Loss and Accuracy
-        loss = -(y * np.log(l2) + (1 - y) * np.log(1 - l2))
-        accuracy = int(y == np.where(l2 > 0.5, 1, 0))
-
-        # Save the loss and accuracy to a running averager
-        train_loss.send(loss)
-        train_accuracy.send(accuracy)
-
-        # Derivative of loss wrt the dense layer
-        dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1).reshape(-1, )
-
-        # Derivative of loss wrt the output of the first layer
-        dl1 = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(28, 28)
-
-        # Derivative of the loss wrt the convolution filter
-        dl1_f1p = dl1 * f1p
-        dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
-                         for beta in range(K)] \
-                        for alpha in range(K)])
-
-        W2 += -eta * dW2
-        # W1 += -eta * dW1
-
-    loss_averager_valid = averager()
-    accuracy_averager_valid = averager()
-
-    for X, y in zip(X_valid, y_valid):
-        accuracy, loss = forward_pass(W1, W2, X, y)
-        loss_averager_valid.send(loss)
-        accuracy_averager_valid.send(accuracy)
-
-    train_loss, train_accuracy, valid_loss, valid_accuracy = map(extract_averager_value, [
-        train_loss,
-        train_accuracy,
-        loss_averager_valid,
-        accuracy_averager_valid]
-                                                                 )
-    msg = 'Epoch {}: train loss {:.2f}, train acc {:.2f}, valid loss {:.2f}, valid acc {' \
-          ':.2f}'.format(
-        epoch + 1,
-        train_loss,
-        train_accuracy,
-        valid_loss,
-        valid_accuracy
-        )
-    print(msg)
-
-# RUN THE MODEL WITH DENSE WEIGHTS FROZEN
+# TRAIN THE MODEL with convolution weights frozen
 
 np.random.seed(42)
 W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
 W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+print('*'*25,'Training the model with convolution weights frozen','*'*25)
+train_model(W1,W2,update_W1=False)
 
-print('Training the model with dense layer weights frozen')
+# TRAIN THE MODEL with dense weights frozen
 
-for epoch in range(num_epochs):
-    train_loss = averager()
-    train_accuracy = averager()
+np.random.seed(42)
+W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
+W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+print('*'*25,'Training the model with dense weights frozen','*'*25)
+train_model(W1,W2,update_W2=False)
 
-    for i in range(len(y_train)):
-
-        # Take a random sample
-        k = np.random.randint(len(y_train))
-        X = X_train[k]
-        y = y_train[k]
-        if (i + 1) % 100 == 0:
-            sys.stdout.write('{}\r'.format(i+1))
-
-        # First layer is just the input
-        l0 = X
-
-        # Embed the image in a bigger image. It would be useful in computing corrections to the
-        # convolution
-        # filter
-        lt0 = np.zeros((l0.shape[0] + K - 1, l0.shape[1] + K - 1))
-        lt0[K // 2:-K // 2 + 1, K // 2:-K // 2 + 1] = l0
-
-        # convolve with the filter
-        l0_conv = convolve(l0, W1[::-1, ::-1], 'same', 'direct')
-
-        # Layer one is Relu applied on the convolution
-        l1 = relu(l0_conv)
-
-        # Also compute derivative of layer 1
-        f1p = relu_prime(l0_conv)
-
-        # Compute layer 2
-        l2 = sigmoid(np.dot(l1.reshape(-1, ), W2))
-        l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
-
-        # Loss and Accuracy
-        loss = -(y * np.log(l2) + (1 - y) * np.log(1 - l2))
-        accuracy = int(y == np.where(l2 > 0.5, 1, 0))
-
-        # Save the loss and accuracy to a running averager
-        train_loss.send(loss)
-        train_accuracy.send(accuracy)
-
-        # Derivative of loss wrt the dense layer
-        dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1).reshape(-1, )
-
-        # Derivative of loss wrt the output of the first layer
-        dl1 = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(28, 28)
-
-        # Derivative of the loss wrt the convolution filter
-        dl1_f1p = dl1 * f1p
-        dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
-                         for beta in range(K)] \
-                        for alpha in range(K)])
-
-        # W2 += -eta * dW2
-        W1 += -eta * dW1
-
-    loss_averager_valid = averager()
-    accuracy_averager_valid = averager()
-
-    for X, y in zip(X_valid, y_valid):
-        accuracy, loss = forward_pass(W1, W2, X, y)
-        loss_averager_valid.send(loss)
-        accuracy_averager_valid.send(accuracy)
-
-    train_loss, train_accuracy, valid_loss, valid_accuracy = map(extract_averager_value, [
-        train_loss,
-        train_accuracy,
-        loss_averager_valid,
-        accuracy_averager_valid]
-                                                                 )
-    msg = 'Epoch {}: train loss {:.2f}, train acc {:.2f}, valid loss {:.2f}, valid acc {' \
-          ':.2f}'.format(
-        epoch + 1,
-        train_loss,
-        train_accuracy,
-        valid_loss,
-        valid_accuracy
-        )
-    print(msg)
