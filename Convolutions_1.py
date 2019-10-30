@@ -3,6 +3,8 @@ import sys
 import numpy as np
 from scipy.signal import convolve
 from tensorflow import keras
+from skimage.measure import block_reduce
+from skimage.util import view_as_blocks
 
 from utility_functions import averager, relu, extract_averager_value, sigmoid, relu_prime
 
@@ -28,13 +30,21 @@ X_train = (X_train - X_mean) / X_std
 X_valid = (X_valid - X_mean) / X_std
 X_test = (X_test - X_mean) / X_std
 
+def random_weights(np_seed=None):
+    if np_seed:
+        np.random.seed(np_seed)
+    W1 = np.random.normal(0, 2 / np.sqrt(K * K), size=(K, K))
+    W2 = np.random.normal(0, 1 / np.sqrt(half_image_size * half_image_size),
+                          size=(half_image_size*half_image_size))
+    return W1,W2
+
 def forward_pass(W1,W2,X,y):
     l0=X
     l0_conv=convolve(l0,W1[::-1,::-1],'same','direct')
 
     l1=relu(l0_conv)
-
-    l2=sigmoid(np.dot(l1.reshape(-1,),W2))
+    l1_max_pooled = block_reduce(l1, (2, 2), np.max)
+    l2=sigmoid(np.dot(l1_max_pooled.reshape(-1,),W2))
     l2=l2.clip(10**-16,1-10**-16)
 
 
@@ -45,14 +55,13 @@ def forward_pass(W1,W2,X,y):
 
 K=3
 image_size=X_train.shape[1]
+half_image_size=int(image_size/2)
 image_size_embedding_size=image_size+K-1
 
+assert image_size % 2==0, 'Image sizes need to be even'
 # PRINT INITIAL LOSS AND ACCURACY (which is computable theoretically)
 
-np.random.seed(42)
-W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
-W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
-
+W1, W2 = random_weights(42)
 train_loss=averager()
 train_accuracy=averager()
 loss_averager_valid=averager()
@@ -85,7 +94,7 @@ print(msg)
 
 
 def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
-
+    dl1=np.zeros((image_size,image_size))
     for epoch in range(num_epochs):
         train_loss = averager()
         train_accuracy = averager()
@@ -117,8 +126,16 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
             # Also compute derivative of layer 1
             f1p = relu_prime(l0_conv)
 
+            # max pooling
+
+            view = view_as_blocks(l1, (2, 2)).reshape(half_image_size, half_image_size, -1)
+            l1_max_pooled = np.max(view, axis=2)
+            arg_max_1d = np.argmax(view, axis=2)
+            max_rows = (arg_max_1d // 2 + np.arange(0, image_size, 2)[:, None]).flatten()
+            max_cols = (arg_max_1d % 2 + np.arange(0, image_size, 2)[None, :]).flatten()
+
             # Compute layer 2
-            l2 = sigmoid(np.dot(l1.reshape(-1, ), W2))
+            l2 = sigmoid(np.dot(l1_max_pooled.reshape(-1, ), W2))
             l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
 
             # Loss and Accuracy
@@ -130,10 +147,12 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
             train_accuracy.send(accuracy)
 
             # Derivative of loss wrt the dense layer
-            dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1).reshape(-1, )
+            dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1_max_pooled).reshape(-1, )
 
             # Derivative of loss wrt the output of the first layer
-            dl1 = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(28, 28)
+            dl1_max_pooled = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(half_image_size, half_image_size)
+            dl1[max_rows,max_cols]=dl1_max_pooled.flatten()
+            #dl1=dl1_max_pooled.repeat(2,0).repeat(2,1)*max_pool_locations
 
             # Derivative of the loss wrt the convolution filter
             dl1_f1p = dl1 * f1p
@@ -145,6 +164,8 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
                 W2 += -eta * dW2
             if update_W1:
                 W1 += -eta * dW1
+
+            dl1[max_rows,max_cols]=0
 
         loss_averager_valid = averager()
         accuracy_averager_valid = averager()
@@ -170,28 +191,24 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
             )
         print(msg)
 
+
+
 # TRAIN THE MODEL
 
-np.random.seed(42)
-W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
-W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+W1, W2 = random_weights(42)
 print('*'*25,'Training the model','*'*25)
 train_model(W1,W2)
 
 
 # TRAIN THE MODEL with convolution weights frozen
 
-np.random.seed(42)
-W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
-W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+W1, W2 = random_weights(42)
 print('*'*25,'Training the model with convolution weights frozen','*'*25)
 train_model(W1,W2,update_W1=False)
 
 # TRAIN THE MODEL with dense weights frozen
 
-np.random.seed(42)
-W1=np.random.normal(0,2/np.sqrt(K*K),size=(K,K))
-W2=np.random.normal(0,1/np.sqrt(image_size*image_size),size=(image_size*image_size))
+W1, W2 = random_weights(42)
 print('*'*25,'Training the model with dense weights frozen','*'*25)
 train_model(W1,W2,update_W2=False)
 
