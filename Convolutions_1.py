@@ -4,7 +4,7 @@ import numpy as np
 from scipy.signal import convolve
 from tensorflow import keras
 from skimage.measure import block_reduce
-from skimage.util import view_as_blocks
+from skimage.util import view_as_blocks,view_as_windows
 
 from utility_functions import averager, relu, extract_averager_value, sigmoid, relu_prime
 
@@ -43,8 +43,8 @@ def forward_pass(W1,W2,X,y):
     l0_conv=convolve(l0,W1[::-1,::-1],'same','direct')
 
     l1=relu(l0_conv)
-    l1_max_pooled = block_reduce(l1, (2, 2), np.max)
-    l2=sigmoid(np.dot(l1_max_pooled.reshape(-1,),W2))
+    l1_max_pooled_raveled = block_reduce(l1, (2, 2), np.max).ravel()
+    l2=sigmoid(np.dot(l1_max_pooled_raveled,W2))
     l2=l2.clip(10**-16,1-10**-16)
 
 
@@ -92,6 +92,11 @@ msg='With original weights: train loss {:.2f}, train acc {:.2f}, valid loss {:.2
                                                                                                  )
 print(msg)
 
+_row_and_col=np.arange(0, image_size, 2)
+_row_and_col=[_row_and_col for _ in range(half_image_size)]
+_rows_adder=np.stack(_row_and_col,axis=1)
+_cols_adder=np.stack(_row_and_col,axis=0)
+lt0 = np.zeros((image_size + K - 1, image_size + K - 1))
 
 def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
     dl1=np.zeros((image_size,image_size))
@@ -112,30 +117,26 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
             l0 = X
 
             # Embed the image in a bigger image. It would be useful in computing corrections to the
-            # convolution
-            # filter
-            lt0 = np.zeros((l0.shape[0] + K - 1, l0.shape[1] + K - 1))
+            # convolution filter
+
             lt0[K // 2:-K // 2 + 1, K // 2:-K // 2 + 1] = l0
 
             # convolve with the filter
-            l0_conv = convolve(l0, W1[::-1, ::-1], 'same', 'direct')
+            l0_conv = convolve(l0, W1[::-1, ::-1], 'same')
 
             # Layer one is Relu applied on the convolution
             l1 = relu(l0_conv)
 
-            # Also compute derivative of layer 1
-            f1p = relu_prime(l0_conv)
-
             # max pooling
 
             view = view_as_blocks(l1, (2, 2)).reshape(half_image_size, half_image_size, -1)
-            l1_max_pooled = np.max(view, axis=2)
+            l1_max_pooled_raveled = np.max(view, axis=2).ravel()
             arg_max_1d = np.argmax(view, axis=2)
-            max_rows = (arg_max_1d // 2 + np.arange(0, image_size, 2)[:, None]).flatten()
-            max_cols = (arg_max_1d % 2 + np.arange(0, image_size, 2)[None, :]).flatten()
+            max_rows = (arg_max_1d // 2 + _rows_adder).ravel()
+            max_cols = (arg_max_1d % 2 + _cols_adder).ravel()
 
             # Compute layer 2
-            l2 = sigmoid(np.dot(l1_max_pooled.reshape(-1, ), W2))
+            l2 = sigmoid(np.dot(l1_max_pooled_raveled, W2))
             l2 = l2.clip(10 ** -16, 1 - 10 ** -16)
 
             # Loss and Accuracy
@@ -147,18 +148,21 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
             train_accuracy.send(accuracy)
 
             # Derivative of loss wrt the dense layer
-            dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1_max_pooled).reshape(-1, )
+            if update_W2:
+                dW2 = (((1 - y) * l2 - y * (1 - l2)) * l1_max_pooled_raveled)
 
-            # Derivative of loss wrt the output of the first layer
-            dl1_max_pooled = (((1 - y) * l2 - y * (1 - l2)) * W2).reshape(half_image_size, half_image_size)
-            dl1[max_rows,max_cols]=dl1_max_pooled.flatten()
-            #dl1=dl1_max_pooled.repeat(2,0).repeat(2,1)*max_pool_locations
+            if update_W1:
+                # Derivative of loss wrt the output of the first layer
+                dl1_max_pooled_raveled = (((1 - y) * l2 - y * (1 - l2)) * W2) #.reshape(half_image_size, half_image_size)
+                dl1[max_rows,max_cols]=dl1_max_pooled_raveled
 
-            # Derivative of the loss wrt the convolution filter
-            dl1_f1p = dl1 * f1p
-            dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
-                             for beta in range(K)] \
-                            for alpha in range(K)])
+                # Derivative of the loss wrt the convolution filter
+                dl1_f1p = np.where(l0_conv>0,dl1,0)
+                dW1 = np.array([[(lt0[alpha:+alpha + image_size, beta:beta + image_size] * dl1_f1p).sum()
+                                 for beta in range(K)] \
+                                for alpha in range(K)])
+                # Surprizingly this is slower even though my code is not vectorized
+                # dW1=(view_as_windows(lt0,(image_size,image_size))*dl1_f1p[None,None,:,:]).sum(axis=(2,3))
 
             if update_W2:
                 W2 += -eta * dW2
