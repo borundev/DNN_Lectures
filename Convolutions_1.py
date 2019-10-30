@@ -194,21 +194,26 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
 
 
 # TRAIN THE MODEL
-
+import time
 W1, W2 = random_weights(42)
 print('*'*25,'Training the model','*'*25)
+t0=time.time()
 train_model(W1,W2)
+print(time.time()-t0)
 
 
 # TRAIN THE MODEL with convolution weights frozen
 
 W1, W2 = random_weights(42)
 print('*'*25,'Training the model with convolution weights frozen','*'*25)
-train_model(W1,W2,update_W1=False)
+t0=time.time()
+train_model(W1,W2, update_W1=False)
+print(time.time()-t0)
 
 # TRAIN THE MODEL with dense weights frozen
 
 W1, W2 = random_weights(42)
 print('*'*25,'Training the model with dense weights frozen','*'*25)
+t0=time.time()
 train_model(W1,W2,update_W2=False)
-
+print(time.time()-t0)
