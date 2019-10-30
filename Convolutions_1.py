@@ -34,8 +34,8 @@ def random_weights(np_seed=None):
     if np_seed:
         np.random.seed(np_seed)
     W1 = np.random.normal(0, 2 / np.sqrt(K * K), size=(K, K))
-    W2 = np.random.normal(0, 1 / np.sqrt(half_image_size * half_image_size),
-                          size=(half_image_size*half_image_size))
+    W2 = np.random.normal(0, 1 / np.sqrt(max_pooled_image_size * max_pooled_image_size),
+                          size=(max_pooled_image_size * max_pooled_image_size))
     return W1,W2
 
 def forward_pass(W1,W2,X,y):
@@ -43,7 +43,7 @@ def forward_pass(W1,W2,X,y):
     l0_conv=convolve(l0,W1[::-1,::-1],'same','direct')
 
     l1=relu(l0_conv)
-    l1_max_pooled_raveled = block_reduce(l1, (2, 2), np.max).ravel()
+    l1_max_pooled_raveled = block_reduce(l1, (max_pool_size, max_pool_size), np.max).ravel()
     l2=sigmoid(np.dot(l1_max_pooled_raveled,W2))
     l2=l2.clip(10**-16,1-10**-16)
 
@@ -54,11 +54,13 @@ def forward_pass(W1,W2,X,y):
     return accuracy,loss
 
 K=3
+max_pool_size=1
 image_size=X_train.shape[1]
-half_image_size=int(image_size/2)
+assert image_size % max_pool_size==0, 'Image sizes needs to be multiple of max pool window size'
+
+max_pooled_image_size=int(image_size / max_pool_size)
 image_size_embedding_size=image_size+K-1
 
-assert image_size % 2==0, 'Image sizes need to be even'
 # PRINT INITIAL LOSS AND ACCURACY (which is computable theoretically)
 
 W1, W2 = random_weights(42)
@@ -92,8 +94,8 @@ msg='With original weights: train loss {:.2f}, train acc {:.2f}, valid loss {:.2
                                                                                                  )
 print(msg)
 
-_row_and_col=np.arange(0, image_size, 2)
-_row_and_col=[_row_and_col for _ in range(half_image_size)]
+_row_and_col=np.arange(0, image_size, max_pool_size)
+_row_and_col=[_row_and_col for _ in range(max_pooled_image_size)]
 _rows_adder=np.stack(_row_and_col,axis=1)
 _cols_adder=np.stack(_row_and_col,axis=0)
 lt0 = np.zeros((image_size + K - 1, image_size + K - 1))
@@ -129,7 +131,7 @@ def train_model(W1,W2,num_epochs=5,eta=0.001,update_W1=True,update_W2=True):
 
             # max pooling
 
-            view = view_as_blocks(l1, (2, 2)).reshape(half_image_size, half_image_size, -1)
+            view = view_as_blocks(l1, (max_pool_size, max_pool_size)).reshape(max_pooled_image_size, max_pooled_image_size, -1)
             l1_max_pooled_raveled = np.max(view, axis=2).ravel()
             arg_max_1d = np.argmax(view, axis=2)
             max_rows = (arg_max_1d // 2 + _rows_adder).ravel()
