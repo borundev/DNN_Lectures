@@ -31,7 +31,7 @@ def forward_pass_batch(W1,W2,X_batch,y_batch):
 
     return loss.mean(),accuracy.mean()
 
-DATASET='CIFAR100'
+DATASET='CIFAR10'
 
 if DATASET=='CIFAR10':
     print('Using CIFAR10')
