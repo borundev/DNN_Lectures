@@ -36,7 +36,7 @@ DATASET='CIFAR10'
 if DATASET=='CIFAR10':
     print('Using CIFAR10')
     (X_train_full, y_train_full), (X_test, y_test)  = keras.datasets.cifar10.load_data()
-if DATASET=='CIFAR100':
+elif DATASET=='CIFAR100':
     print('Using CIFAR100')
     (X_train_full, y_train_full), (X_test, y_test)  = keras.datasets.cifar100.load_data()
 else:
