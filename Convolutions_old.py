@@ -38,7 +38,7 @@ def forward_pass_batch(W1, W2, X_batch, y_batch):
     return l0, l1, f1p, l2, loss, accuracy
 
 
-DATASET = 'CIFAR10'
+DATASET = 'Fashion_MNIST'
 
 if DATASET == 'CIFAR10':
     print('Using CIFAR10')
@@ -177,7 +177,6 @@ def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
 
         loss_averager_valid = averager()
         accuracy_averager_valid = averager()
-
         for X_valid_batch, y_valid_batch in batch_generator(X_valid, y_valid,
                                                             batch_size,
                                                             len(
@@ -207,6 +206,10 @@ def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
         print(msg)
     return W1, W2
 
+import time
 
-for num_filters in (2, 10, 30):
+for num_filters in (10,):
+    t0=time.time()
     train(num_filters)
+    t1=time.time()
+    print('Total time',t1-t0)
