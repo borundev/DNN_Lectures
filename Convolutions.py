@@ -29,7 +29,6 @@ class Layer(object):
 
     def update_weights(self):
         np.add(self.weights,-self.learning_rate * self.d_weights, out=self.weights)
-        # print(self.d_weights.flatten()[:5])
 
 
 class Convolution2D(Layer):
@@ -38,16 +37,16 @@ class Convolution2D(Layer):
 
         if weights is None:
             assert shape is not None, 'Both weights and shape cannot be None'
-            self.K, _, self.num_channels, self.num_filters = shape
+            self.filter_size, _, self.num_channels, self.num_filters = shape
             weights = np.random.normal(0, 1 / np.sqrt(
-                self.K * self.K * self.num_channels),
-                                            size=(self.K,
-                                                  self.K,
+                self.filter_size * self.filter_size * self.num_channels),
+                                       size=(self.filter_size,
+                                                  self.filter_size,
                                                   self.num_channels,
                                                   self.num_filters))
 
         super().__init__(weights)
-        self.K, _, self.num_channels, self.num_filters = self.weights.shape
+        self.filter_size, _, self.num_channels, self.num_filters = self.weights.shape
         self.batch_size = None
         self.image_size_embedding_size = None
 
@@ -79,32 +78,30 @@ class Convolution2D(Layer):
     def back_prop(self, dl1):
         if self.first_back_prop:
             self.first_back_prop=False
-            self.image_size_embedding_size = self.image_size + self.K - 1
+            self.image_size_embedding_size = self.image_size + self.filter_size - 1
             self.lt0 = np.zeros((self.batch_size,
                                  self.image_size_embedding_size,
                                  self.image_size_embedding_size,
                                  self.num_channels))
             self.dl1_l1p = np.zeros_like(self.l1p)
 
-        #self.dl1_l1p[:] = (dl1 * self.l1p)
         np.multiply(dl1,self.l1p,out=self.dl1_l1p)
-        #self.lt0[:] = 0
-        self.lt0[:, self.K // 2:-self.K // 2 + 1, self.K // 2:-self.K // 2 +1] \
+        self.lt0[:, self.filter_size // 2:-self.filter_size // 2 + 1, self.filter_size // 2:-self.filter_size // 2 + 1] \
             = self.l0
         self.d_weights = np.array(
-            [[(self.lt0[:, alpha:image_size_embedding_size + alpha - (self.K -1),
-               beta:image_size_embedding_size + beta - (self.K - 1)][:, :, :,
+            [[(self.lt0[:, alpha:image_size_embedding_size + alpha - (self.filter_size - 1),
+               beta:image_size_embedding_size + beta - (self.filter_size - 1)][:, :, :,
                :, None] \
                * self.dl1_l1p[:, :, :, None, :]).sum((1, 2)) \
-              for beta in range(self.K)] for alpha in range(
-                self.K)]).transpose(2, 0, 1, 3, 4).sum(0)
+              for beta in range(self.filter_size)] for alpha in range(
+                self.filter_size)]).transpose(2, 0, 1, 3, 4).sum(0)
 
         return None
 
 
 class DenseSoftmax(Layer):
 
-    def __init__(self, weights=None, shape=None):
+    def __init__(self, weights=None, shape=None,assume_cross_entropy_loss=True):
 
         if weights is None:
             assert shape is not None, 'Both weights and shape cannot be None'
@@ -113,6 +110,11 @@ class DenseSoftmax(Layer):
         super().__init__(weights)
         self.num_categories=self.weights.shape[1]
         self.batch_size = None
+        self.assume_cross_entropy_loss=assume_cross_entropy_loss
+        if self.assume_cross_entropy_loss:
+            print('Running while assuming cross entropy loss')
+        else:
+            print('Running without assuming cross entropy loss')
 
     def feed_forward(self, X_batch):
         if self.first_feed_forward:
@@ -134,11 +136,25 @@ class DenseSoftmax(Layer):
 
         self.d[:]=0
         self.d[self.idx_batch_size, y_batch] = 1
-        self.d_weights = (self.l1.reshape(batch_size, -1)[:, :, None] \
-                          * (self.l2 - self.d)[:, None, :]).sum(0)
-        dl1 = (self.l2.dot(self.weights.T) - self.weights[:,y_batch].T).reshape(
-            batch_size,image_size,image_size,num_filters)
-        return dl1
+
+        if not self.assume_cross_entropy_loss:
+
+            s=next_layer_loss_gradient*self.l2
+            ct2=s-s.sum(1)[:,None]*self.l2
+            d_weights_alt=(ct2[:,None,:]*self.l1.reshape(batch_size,-1)[:,:,None]).sum(0)
+            self.d_weights=d_weights_alt
+
+            dl1_alt=ct2.dot(self.weights.T)
+            dl1_alt=dl1_alt.reshape(batch_size,image_size,image_size,num_filters)
+
+            return dl1_alt
+        else:
+            d_weights = (self.l1.reshape(batch_size, -1)[:, :, None] \
+                         * (self.l2 - self.d)[:, None, :]).sum(0)
+            self.d_weights=d_weights
+            dl1 = (self.l2.dot(self.weights.T) - self.weights[:,y_batch].T)
+            dl1=dl1.reshape(batch_size,image_size,image_size,num_filters)
+            return dl1
 
 
 class Model(object):
@@ -153,14 +169,17 @@ class Model(object):
         self.output = data
 
     def loss(self, y_batch):
-        batch_size = len(y_batch)
-        idx_batch_size = range(batch_size)
-        loss = -np.log(self.output[idx_batch_size, y_batch])
-        accuracy = self.output.argmax(1) == y_batch
+        self.y_batch=y_batch
+        self.batch_size = len(self.y_batch)
+        idx_batch_size = range(self.batch_size)
+        loss = -np.log(self.output[idx_batch_size, self.y_batch])
+        accuracy = self.output.argmax(1) == self.y_batch
         return loss.mean(), accuracy.mean()
 
     def back_prop(self):
-        loss_grad = None
+        loss_grad = np.zeros_like(self.output)
+        idx_batch_size = range(self.batch_size)
+        loss_grad[idx_batch_size, self.y_batch]=-(self.output[idx_batch_size,self.y_batch])**-1
         for l in self.layers[::-1]:
             loss_grad = l.back_prop(loss_grad)
 
@@ -176,7 +195,7 @@ class Model(object):
         return loss, accuracy
 
 
-DATASET = 'd'
+DATASET = 'Fashion_MNIST'
 
 if DATASET == 'CIFAR10':
     print('Using CIFAR10')
@@ -233,7 +252,7 @@ for num_filters in (10,):
     m = Model()
     m.layers = [
         Convolution2D(weights=W1),
-        DenseSoftmax(weights=W2)
+        DenseSoftmax(weights=W2, assume_cross_entropy_loss=True)
     ]
 
     for epoch in range(5):
