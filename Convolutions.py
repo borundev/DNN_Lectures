@@ -96,6 +96,8 @@ class Convolution2D(Layer):
               for beta in range(self.filter_size)] for alpha in range(
                 self.filter_size)]).transpose(2, 0, 1, 3, 4).sum(0)
 
+        # TODO: This should return the derivative of dl1 by dl0 so that it can be stacked
+        # on top of another convolutional layer if needed.
         return None
 
 
@@ -252,7 +254,7 @@ for num_filters in (10,):
     m = Model()
     m.layers = [
         Convolution2D(weights=W1),
-        DenseSoftmax(weights=W2, assume_cross_entropy_loss=True)
+        DenseSoftmax(weights=W2, assume_cross_entropy_loss=False)
     ]
 
     for epoch in range(5):
