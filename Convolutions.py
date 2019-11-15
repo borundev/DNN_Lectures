@@ -1,7 +1,7 @@
 import sys
 
 import numpy as np
-from scipy.signal import convolve, convolve2d
+from scipy.signal import convolve2d
 from tensorflow import keras
 from utility_functions import relu, relu_prime, averager, extract_averager_value
 
@@ -37,7 +37,8 @@ class Layer(object):
 
     def update_weights(self):
         if self.trainable:
-            np.add(self.weights, -self.learning_rate * self.d_weights,
+            np.add(self.weights,
+                   -self.learning_rate * self.loss_derivative_weights,
                    out=self.weights)
 
     def set_first_layer(self):
@@ -70,71 +71,85 @@ class Convolution2D(Layer):
             self.first_feed_forward = False
             self.batch_size = len(X_batch)
             self.image_size = X_batch.shape[1]
-            self.l0_conv = np.zeros((self.batch_size, self.image_size,
-                                     self.image_size,
-                                     self.num_filters))
-            self.l1 = np.zeros_like(self.l0_conv)
-            self.l1p = np.zeros_like(self.l0_conv)
+            self.input_conv = np.zeros((self.batch_size, self.image_size,
+                                        self.image_size,
+                                        self.num_filters))
+            self.output = np.zeros_like(self.input_conv)
+            self.output_derivative = np.zeros_like(self.input_conv)
 
-        self.l0 = X_batch
+        self.input = X_batch
 
-        self.l0_conv[:]=0
+        self.input_conv[:] = 0
         for batch_id in range(self.batch_size):
             for next_layer_channel_id in range(self.weights.shape[3]):
                 for current_layer_channel_id in range(self.weights.shape[2]):
-                    np.sum([self.l0_conv[batch_id, :, :, next_layer_channel_id],
-                            convolve2d(self.l0[batch_id, :, :, current_layer_channel_id],
-                                  self.weights[::-1, ::-1, current_layer_channel_id,
-                                  next_layer_channel_id],
-                                  'same')],
-                           axis=0,
-                           out=self.l0_conv[batch_id, :, :, next_layer_channel_id])
+                    np.sum(
+                        [self.input_conv[batch_id, :, :, next_layer_channel_id],
+                         convolve2d(self.input[batch_id, :, :,
+                                    current_layer_channel_id],
+                                    self.weights[::-1, ::-1,
+                                    current_layer_channel_id,
+                                    next_layer_channel_id],
+                                    'same')],
+                        axis=0,
+                        out=self.input_conv[batch_id, :, :,
+                            next_layer_channel_id])
 
-        self.l1[:] = relu(self.l0_conv)
-        self.l1p[:] = relu_prime(self.l0_conv)
-        return self.l1
+        self.output[:] = relu(self.input_conv)
+        self.output_derivative[:] = relu_prime(self.input_conv)
+        return self.output
 
-    def back_prop(self, dl1):
+    def back_prop(self, loss_derivative_output):
         if self.first_back_prop:
             self.first_back_prop = False
             self.image_size_embedding_size = self.image_size + self.filter_size - 1
-            self.lt0 = np.zeros((self.batch_size,
-                                 self.image_size_embedding_size,
-                                 self.image_size_embedding_size,
-                                 self.num_channels))
-            self.dl1_l1p = np.zeros_like(self.l1p)
-            self.dl0 = np.zeros_like(self.l0)
+            self.input_zero_padded = np.zeros((self.batch_size,
+                                               self.image_size_embedding_size,
+                                               self.image_size_embedding_size,
+                                               self.num_channels))
+            self.loss_derivative_output_times_derivative_output = np.zeros_like(
+                self.output_derivative)
+            self.loss_derivative_input = np.zeros_like(self.input)
 
-        np.multiply(dl1, self.l1p, out=self.dl1_l1p)
-        self.lt0[:, self.filter_size // 2:-self.filter_size // 2 + 1,
+        np.multiply(loss_derivative_output, self.output_derivative,
+                    out=self.loss_derivative_output_times_derivative_output)
+        self.input_zero_padded[:,
+        self.filter_size // 2:-self.filter_size // 2 + 1,
         self.filter_size // 2:-self.filter_size // 2 + 1] \
-            = self.l0
+            = self.input
         if self.trainable:
-            self.d_weights = np.array(
-                [[(self.lt0[:,
-                   alpha:image_size_embedding_size + alpha - (self.filter_size - 1),
-                   beta:image_size_embedding_size + beta - (self.filter_size - 1)][
+            self.loss_derivative_weights = np.array(
+                [[(self.input_zero_padded[:,
+                   alpha:image_size_embedding_size + alpha - (
+                               self.filter_size - 1),
+                   beta:image_size_embedding_size + beta - (
+                               self.filter_size - 1)][
                    :, :, :,
                    :, None] \
-                   * self.dl1_l1p[:, :, :, None, :]).sum((1, 2)) \
+                   * self.loss_derivative_output_times_derivative_output[:, :,
+                     :, None, :]).sum((1, 2)) \
                   for beta in range(self.filter_size)] for alpha in range(
                     self.filter_size)]).transpose(2, 0, 1, 3, 4).sum(0)
 
-
-        self.dl0[:]=0
+        self.loss_derivative_input[:] = 0
         if not self.first_layer:
-            for batch_id in range(self.dl1_l1p.shape[0]):
+            for batch_id in range(
+                    self.loss_derivative_output_times_derivative_output.shape[
+                        0]):
                 for prev_layer_channel_id in range(self.weights.shape[2]):
                     for channel_id in range(self.weights.shape[3]):
-                        np.sum([self.dl0[batch_id, :, :, prev_layer_channel_id],
+                        np.sum([self.loss_derivative_input[batch_id, :, :,
+                                prev_layer_channel_id],
                                 convolve2d(
-                                    self.dl1_l1p[batch_id, :, :, channel_id],
+                                    self.loss_derivative_output_times_derivative_output[
+                                    batch_id, :, :, channel_id],
                                     self.weights[:, :, prev_layer_channel_id,
                                     channel_id], 'same')
                                 ],
                                axis=0,
-                               out=self.dl0[batch_id, :, :, prev_layer_channel_id])
-        return self.dl0
+                               out=self.loss_derivative_input[batch_id, :, :,
+                                   prev_layer_channel_id])
+        return self.loss_derivative_input
 
 
 class DenseSoftmax(Layer):
@@ -161,14 +176,15 @@ class DenseSoftmax(Layer):
             self.batch_size = len(X_batch)
             self.idx_batch_size = range(self.batch_size)
 
-        self.l1 = X_batch
-        l1_dot_W2 = self.l1.reshape(self.batch_size, -1).dot(self.weights)
+        self.input = X_batch
+        input_dot_weights = self.input.reshape(self.batch_size, -1).dot(
+            self.weights)
 
-        p_un = np.exp(l1_dot_W2)
-        self.l2 = p_un / p_un.sum(1)[:, None]
-        return self.l2
+        p_un = np.exp(input_dot_weights)
+        self.output = p_un / p_un.sum(1)[:, None]
+        return self.output
 
-    def back_prop(self, next_layer_loss_gradient=None):
+    def back_prop(self, loss_derivative_output=None):
         if self.first_back_prop:
             self.first_back_prop = False
             self.d = np.zeros(shape=(self.batch_size, self.num_categories))
@@ -178,25 +194,34 @@ class DenseSoftmax(Layer):
 
         if not self.assume_cross_entropy_loss:
 
-            s = next_layer_loss_gradient * self.l2
-            ct2 = s - s.sum(1)[:, None] * self.l2
-            d_weights_alt = (
-                        ct2[:, None, :] * self.l1.reshape(batch_size, -1)[:, :,
-                                          None]).sum(0)
-            self.d_weights = d_weights_alt
+            s = loss_derivative_output * self.output
+            ct2 = s - s.sum(1)[:, None] * self.output
+            loss_derivative_weights = (
+                    ct2[:, None, :] * self.input.reshape(batch_dl1_altsize, -1)[
+                                      :, :,
+                                      None]).sum(0)
+            self.loss_derivative_weights = loss_derivative_weights
 
-            dl1_alt = ct2.dot(self.weights.T)
-            dl1_alt = dl1_alt.reshape(batch_size, image_size, image_size,
-                                      num_filters)
+            loss_derivative_input = ct2.dot(self.weights.T)
+            loss_derivative_input = loss_derivative_input.reshape(batch_size,
+                                                                  image_size,
+                                                                  image_size,
+                                                                  num_filters)
 
-            return dl1_alt
+            return loss_derivative_input
         else:
-            d_weights = (self.l1.reshape(batch_size, -1)[:, :, None] \
-                         * (self.l2 - self.d)[:, None, :]).sum(0)
-            self.d_weights = d_weights
-            dl1 = (self.l2.dot(self.weights.T) - self.weights[:, y_batch].T)
-            dl1 = dl1.reshape(batch_size, image_size, image_size, num_filters)
-            return dl1
+            loss_derivative_weights = (
+                        self.input.reshape(batch_size, -1)[:, :, None] \
+                        * (self.output - self.d)[:, None, :]).sum(0)
+            self.loss_derivative_weights = loss_derivative_weights
+            loss_derivative_input = (
+                        self.output.dot(self.weights.T) - self.weights[:,
+                                                          y_batch].T)
+            loss_derivative_input = loss_derivative_input.reshape(batch_size,
+                                                                  image_size,
+                                                                  image_size,
+                                                                  num_filters)
+            return loss_derivative_input
 
 
 class Model(object):
@@ -289,7 +314,7 @@ num_steps = len(y_train) // batch_size
 
 import time
 
-for num_filters in (3,):
+for num_filters in (5,):
     t0 = time.time()
     print('Training with num_filters ', num_filters)
     np.random.seed(42)
@@ -305,7 +330,7 @@ for num_filters in (3,):
         Convolution2D(weights=W1, name='Conv1', trainable=True),
         Convolution2D(shape=(K, K, num_filters, num_filters), trainable=True,
                       name='Conv2'),
-        #Convolution2D(shape=(K, K, num_filters, num_filters), trainable=True,
+        # Convolution2D(shape=(K, K, num_filters, num_filters), trainable=True,
         #              name='Conv3'),
         DenseSoftmax(weights=W2, assume_cross_entropy_loss=True,
                      name='DenseSoftmax', trainable=True)
