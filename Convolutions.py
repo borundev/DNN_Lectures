@@ -3,8 +3,8 @@ import sys
 import numpy as np
 from scipy.signal import convolve2d
 from tensorflow import keras
-from utility_functions import relu, relu_prime, averager, extract_averager_value
-
+from utility_functions import relu, selu, averager, extract_averager_value
+from functools import partial
 
 def batch_generator(X, y, batch_size, total_count):
     idx = np.arange(0, len(y))
@@ -49,7 +49,7 @@ class Layer(object):
 
 class Convolution2D(Layer):
 
-    def __init__(self, weights=None, shape=None, **kwargs):
+    def __init__(self, weights=None, shape=None, activation=relu, **kwargs):
 
         if weights is None:
             assert shape is not None, 'Both weights and shape cannot be None'
@@ -63,6 +63,7 @@ class Convolution2D(Layer):
 
         super().__init__(weights, **kwargs)
         self.filter_size, _, self.num_channels, self.num_filters = self.weights.shape
+        self.activation=activation
 
     def feed_forward(self, X_batch):
         if self.first_feed_forward:  # First run
@@ -100,8 +101,8 @@ class Convolution2D(Layer):
                             next_layer_channel_id]
                     )
 
-        self.output = relu(self.input_conv)
-        self.output_d = relu_prime(self.input_conv)
+        self.output = self.activation(self.input_conv)
+        self.output_d = self.activation(self.input_conv, der=True)
         return self.output
 
     def back_prop(self, loss_d_output):
