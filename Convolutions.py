@@ -3,8 +3,8 @@ import sys
 import numpy as np
 from scipy.signal import convolve2d
 from tensorflow import keras
-from utility_functions import relu, selu, averager, extract_averager_value
-from functools import partial
+from utility_functions import relu, averager, extract_averager_value
+
 
 def batch_generator(X, y, batch_size, total_count):
     idx = np.arange(0, len(y))
@@ -15,19 +15,14 @@ def batch_generator(X, y, batch_size, total_count):
 
 class Layer(object):
 
-    def __init__(self, weights, trainable=True, learning_rate=0.001, name=None):
+    def __init__(self, weights, trainable=True, learning_rate=0.001, name=None, first_layer=False):
         self.learning_rate = learning_rate
         self.weights = weights.copy()
         self.first_feed_forward = True
         self.first_back_prop = True
-        self.first_layer = False
+        self.first_layer = first_layer
         self.trainable = trainable
         self.name = name
-        if not self.trainable:
-            print('{} not trainable'.format(self))
-
-    def __repr__(self):
-        return '{}: {}'.format(self.__class__, self.name)
 
     def feed_forward(self, prev_layer):
         raise NotImplementedError
@@ -41,10 +36,6 @@ class Layer(object):
                    -self.learning_rate * self.loss_derivative_weights,
                    out=self.weights)
 
-    def set_first_layer(self):
-        # First layer need not compute the derivative of the loss with respect to the input
-        if not self.first_layer:
-            self.first_layer = True
 
 
 class Convolution2D(Layer):
@@ -228,10 +219,7 @@ class Model(object):
     def feed_forward(self, X_batch):
         if self.first_run:
             self.first_run = False
-            self.layers[0].set_first_layer()
-            print('Layers are:')
-            for l in self.layers:
-                print(l, l.weights.shape)
+            #self.layers[0].set_first_layer()
 
         data = X_batch
         for l in self.layers:
@@ -320,31 +308,38 @@ if __name__ == '__main__':
                                     num_categories))
 
         m = Model()
+        learning_rate=0.001
         m.layers = [
-            Convolution2D(weights=W1, name='Conv1', trainable=True),
+            Convolution2D(weights=W1, name='Conv1', trainable=True,
+                          activation=relu,
+                          learning_rate=learning_rate,
+                          first_layer=True
+                          ),
             # Convolution2D(shape=(5, 5, num_filters, num_filters), trainable=True,
             #              name='Conv2'),
             # Convolution2D(shape=(3, 3, num_filters, num_filters), trainable=True,
             #              name='Conv3'),
             DenseSoftmax(weights=W2, assume_cross_entropy_loss=True,
-                         name='DenseSoftmax', trainable=True)
+                         name='DenseSoftmax', trainable=True, learning_rate=learning_rate)
         ]
 
         for epoch in range(5):
-
+            t_start_epoch=time.time()
             # Train
             train_loss = averager()
             train_accuracy = averager()
             for i, (X_batch, y_batch) in enumerate(
                     batch_generator(X_train, y_train, batch_size, num_steps)):
+                time_step=time.time()
                 if (i + 1) % 10 == 0:
+                    delta_time=time_step-t_start_epoch
+                    eta=(num_steps/(i+1)-1)*delta_time
                     sys.stdout.write(
-                        'Epoch: {} Step {}/{}\r'.format(epoch + 1, i + 1,
-                                                        num_steps))
+                        'Epoch: {} Step {}/{} Time Spent {:.2f}s Estimated Time {:.2f}s\r'.format(epoch + 1, i + 1,
+                                                        num_steps, delta_time, eta))
                 loss, accuracy = m.feed_forward_and_back_prop(X_batch, y_batch)
                 train_loss.send(loss)
                 train_accuracy.send(accuracy)
-
             # Validate
             loss_averager_valid = averager()
             accuracy_averager_valid = averager()
@@ -367,12 +362,13 @@ if __name__ == '__main__':
                     accuracy_averager_valid]
             )
             msg = 'Epoch {}: train loss {:.2f}, train acc {:.2f}, valid loss {' \
-                  ':.2f}, valid acc {:.2f}'.format(
+                  ':.2f}, valid acc {:.2f}, time taken {:.2f}s'.format(
                 epoch + 1,
                 train_loss,
                 train_accuracy,
                 valid_loss,
-                valid_accuracy
+                valid_accuracy,
+                time.time()-t_start_epoch
             )
             print(msg)
         t1 = time.time()
