@@ -60,6 +60,11 @@ class Convolution2D(Layer):
         self.filter_size, _, self.num_channels, self.num_filters = self.weights.shape
         self.activation=activation
 
+        # With all true 945
+        self.use_scipy_convolve_for_feed_forward=True # with false 1131s
+        self.use_scipy_convolve_for_back_prop=True # with false 1268
+        self.use_fancy_indexing_for_weight_update=False
+
     def feed_forward(self, X_batch):
         if self.first_feed_forward:  # First run
             self.first_feed_forward = False
@@ -100,19 +105,43 @@ class Convolution2D(Layer):
         self.input = X_batch
 
         # Convolution
-        self.input_zero_padded[:,
-        self.filter_size // 2:-self.filter_size // 2 + 1,
-        self.filter_size // 2:-self.filter_size // 2 + 1] \
-            = self.input
+        if self.use_scipy_convolve_for_feed_forward:
+            self.input_conv[:] = 0
+            for batch_id in range(self.batch_size):
+                for next_layer_channel_id in range(self.weights.shape[3]):
+                    for current_layer_channel_id in range(self.weights.shape[2]):
+                        # Sum over current layer after convolving
+                        # Summation is done succesively in place on the ouput array
+                        np.sum(
+                            [self.input_conv[batch_id, :, :, next_layer_channel_id],
+                             convolve2d(
+                                 self.input[batch_id, :, :,
+                                 current_layer_channel_id],
+                                 self.weights[::-1, ::-1,
+                                 current_layer_channel_id,
+                                 next_layer_channel_id
+                                 ],
+                                 'same'
+                                 )
+                             ],
+                            axis=0,
+                            out=self.input_conv[batch_id, :, :,
+                                next_layer_channel_id]
+                            )
+        else:
+            self.input_zero_padded[:,
+            self.filter_size // 2:-self.filter_size // 2 + 1,
+            self.filter_size // 2:-self.filter_size // 2 + 1] \
+                = self.input
 
-        np.multiply(self.input_zero_padded[self.batch_index,
-                                                  self.rows,
-                                                  self.cols,
-                                                  self.channel_index],
-                    self.weights[None, None, None,:,:,:,:],
-                    out=self.tmp
-                    )
-        self.tmp.sum(axis=(3, 4, 5), out=self.input_conv)
+            np.multiply(self.input_zero_padded[self.batch_index,
+                                                      self.rows,
+                                                      self.cols,
+                                                      self.channel_index],
+                        self.weights[None, None, None,:,:,:,:],
+                        out=self.tmp
+                        )
+            self.tmp.sum(axis=(3, 4, 5), out=self.input_conv)
 
         self.output = self.activation(self.input_conv)
         self.output_d = self.activation(self.input_conv, der=True)
@@ -147,7 +176,12 @@ class Convolution2D(Layer):
             self.filter_size // 2:-self.filter_size // 2 + 1] \
                 = self.input
 
-            if True:
+            if self.use_fancy_indexing_for_weight_update:
+                (self.input_zero_padded[
+                     self.batch_index, self.rows, self.cols, self.channel_index] *
+                 self.loss_d_output_times_output_d[:, :, :, None, None,None, :]) \
+                    .sum(axis=(0, 1, 2), out=self.loss_derivative_weights)
+            else:
                 for alpha in range(self.weights.shape[0]):
                     for beta in range(self.weights.shape[1]):
                         x = self.loss_d_output_times_output_d[:, :, :, None, :] \
@@ -157,11 +191,6 @@ class Convolution2D(Layer):
                               None]
                         np.sum(x, axis=(0, 1, 2), out=self.loss_derivative_weights[alpha, beta])
 
-            else:
-                (self.input_zero_padded[
-                     self.batch_index, self.rows, self.cols, self.channel_index] *
-                 self.loss_d_output_times_output_d[:, :, :, None, None,None, :]) \
-                    .sum(axis=(0, 1, 2), out=self.loss_derivative_weights)
 
         if not self.first_layer:
             self.loss_d_output_times_output_d_zero_padded[:,
@@ -169,21 +198,9 @@ class Convolution2D(Layer):
                 self.filter_size // 2:-self.filter_size // 2 + 1] = \
                 self.loss_d_output_times_output_d
 
-            if False:
-                np.multiply(self.loss_d_output_times_output_d_zero_padded[self.batch_index,
-                                                   self.rows,
-                                                   self.cols,
-                                                   self.filter_index],
-                            self.weights[None, None, None, ::-1, ::-1, :, :],
-                            out=self.tmp
-                            )
-
-
-                self.tmp.sum(axis=(3, 4, 6), out=self.loss_derivative_input)
-
-            else:
+            if self.use_scipy_convolve_for_back_prop:
                 self.loss_derivative_input[:] = 0
-                if True or not self.first_layer:
+                if not self.first_layer:
                     for batch_id in range(loss_d_output.shape[0]):
                         for prev_layer_channel_id in range(self.weights.shape[2]):
                             for channel_id in range(self.weights.shape[3]):
@@ -198,6 +215,15 @@ class Convolution2D(Layer):
                                     axis=0,
                                     out=self.loss_derivative_input[batch_id, :, :, prev_layer_channel_id]
                                 )
+            else:
+                np.multiply(self.loss_d_output_times_output_d_zero_padded[self.batch_index,
+                                                   self.rows,
+                                                   self.cols,
+                                                   self.filter_index],
+                            self.weights[None, None, None, ::-1, ::-1, :, :],
+                            out=self.tmp
+                            )
+                self.tmp.sum(axis=(3, 4, 6), out=self.loss_derivative_input)
 
         return self.loss_derivative_input
 
@@ -365,10 +391,10 @@ if __name__ == '__main__':
             Convolution2D(weights=W1, name='Conv1', trainable=True,
                           activation=relu,
                           learning_rate=learning_rate,
-                          first_layer=False
+                          first_layer=True
                           ),
-            # Convolution2D(shape=(5, 5, num_filters, num_filters), trainable=True,
-            #              name='Conv2'),
+            Convolution2D(shape=(5, 5, num_filters, num_filters), trainable=True,
+                          name='Conv2'),
             # Convolution2D(shape=(3, 3, num_filters, num_filters), trainable=True,
             #              name='Conv3'),
             DenseSoftmax(weights=W2, assume_cross_entropy_loss=True,
