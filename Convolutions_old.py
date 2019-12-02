@@ -3,8 +3,10 @@ import sys
 import numpy as np
 from scipy.signal import convolve
 from tensorflow import keras
-from utility_functions import relu, relu_prime, averager, extract_averager_value
+from utility_functions import relu, averager, extract_averager_value
 
+def relu_prime(x):
+    return relu(x,der=True)
 
 def batch_generator(X, y, batch_size, total_count):
     idx = np.arange(0, len(y))
@@ -38,7 +40,7 @@ def forward_pass_batch(W1, W2, X_batch, y_batch):
     return l0, l1, f1p, l2, loss, accuracy
 
 
-DATASET = 'Fashion_MNIST'
+DATASET = 'CIFAR10'
 
 if DATASET == 'CIFAR10':
     print('Using CIFAR10')
@@ -83,16 +85,18 @@ num_steps = len(y_train) // batch_size
 
 
 def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
-    np.random.seed(42)
     if not W1:
+        np.random.seed(42)
         W1 = np.random.normal(0, 1 / np.sqrt(K * K * num_channels),
                               size=(K, K, num_channels, num_filters))
     if not W2:
+        state=np.random.get_state()
+        np.random.seed(42)
         W2 = np.random.normal(0, 1 / np.sqrt(
             num_filters * image_size * image_size),
                               size=(num_filters * image_size * image_size,
                                     num_categories))
-
+        np.random.set_state(state)
     idx_batch_size = list(range(batch_size))
     lt0 = np.zeros((batch_size,
                     image_size_embedding_size,
@@ -208,7 +212,7 @@ def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
 
 import time
 
-for num_filters in (10,):
+for num_filters in (5,):
     t0=time.time()
     train(num_filters)
     t1=time.time()
