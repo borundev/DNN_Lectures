@@ -92,3 +92,8 @@ def random_state_contolled(func):
 def np_random_normal(*args,**kwargs):
     return np.random.normal(*args,**kwargs)
 
+def batch_generator(X, y, batch_size, total_count):
+    idx = np.arange(0, len(y))
+    for i in range(total_count):
+        idx_batch = np.random.choice(idx, batch_size)
+        yield X[idx_batch], y[idx_batch]

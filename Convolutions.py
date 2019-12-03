@@ -7,54 +7,14 @@ if sys.platform=='darwin':
 import numpy as np
 from scipy.signal import convolve2d
 from tensorflow import keras
-from utility_functions import relu, averager, extract_averager_value, np_random_normal
+from utility_functions import relu, averager, extract_averager_value, np_random_normal, batch_generator
+
+from Layer import Layer, ActivationFunction
+from DenseSoftmax import DenseSoftmax
+
+from Model import Model
 
 
-def batch_generator(X, y, batch_size, total_count):
-    idx = np.arange(0, len(y))
-    for i in range(total_count):
-        idx_batch = np.random.choice(idx, batch_size)
-        yield X[idx_batch], y[idx_batch]
-
-
-class Layer(object):
-
-    def __init__(self, weights, trainable=True, learning_rate=0.001, name=None, first_layer=False):
-        self.learning_rate = learning_rate
-        self.weights = weights.copy() if weights is not None else None
-        self.first_feed_forward = True
-        self.first_back_prop = True
-        self.first_layer = first_layer
-        self.trainable = trainable
-        self.name = name
-
-    def feed_forward(self, prev_layer):
-        raise NotImplementedError
-
-    def back_prop(self, next_layer_loss_gradient):
-        raise NotImplementedError
-
-    def on_first_feed_forward(self):
-        pass
-
-    def update_weights(self):
-        if self.trainable:
-            np.add(self.weights,
-                   -self.learning_rate * self.loss_derivative_weights,
-                   out=self.weights)
-
-class ActivationFunction(Layer):
-
-    def __init__(self,activation_function):
-        self.activation_function=activation_function
-        self.trainable=False
-
-    def feed_forward(self, prev_layer):
-        self.prev_layer=prev_layer
-        return self.activation_function(prev_layer)
-
-    def back_prop(self, next_layer_loss_gradient):
-        return next_layer_loss_gradient*self.activation_function(self.prev_layer,der=True)
 
 class Convolution2D(Layer):
 
@@ -246,101 +206,6 @@ class Convolution2D(Layer):
 
         return self.loss_derivative_input
 
-
-class DenseSoftmax(Layer):
-
-    def __init__(self, weights=None, shape=None, output_dimension=None, **kwargs):
-
-        if shape is not None:
-            weights = np_random_normal(0, 1 / np.sqrt(shape[0]), size=shape)
-
-        super().__init__(weights, **kwargs)
-        self.output_dimension=output_dimension
-        self.num_categories = self.weights.shape[-1] if self.weights is not None else output_dimension
-        self.batch_size = None
-
-    def feed_forward(self, X_batch):
-        if self.first_feed_forward:
-            self.first_feed_forward = False
-            self.batch_size = len(X_batch)
-            self.idx_batch_size = range(self.batch_size)
-            if self.weights is None:
-                print("initiating")
-                shape=(X_batch.reshape(self.batch_size, -1).shape[1],self.output_dimension)
-                self.weights=np_random_normal(0,1/np.sqrt(shape[0]),size=shape)
-            super().on_first_feed_forward()
-
-        self.input = X_batch
-        input_dot_weights = self.input.reshape(self.batch_size, -1).dot(
-            self.weights)
-
-        p_un = np.exp(input_dot_weights)
-        self.output = p_un / p_un.sum(1)[:, None]
-        return self.output
-
-    def back_prop(self, loss_derivative_output=None):
-        if self.first_back_prop:
-            self.first_back_prop = False
-
-
-
-        s = loss_derivative_output * self.output
-        ct2 = s - s.sum(1)[:, None] * self.output
-        loss_derivative_weights = (
-                ct2[:, None, :] * self.input.reshape(self.batch_size, -1)[
-                                  :, :,
-                                  None]).sum(0)
-        self.loss_derivative_weights = loss_derivative_weights
-
-        loss_derivative_input = ct2.dot(self.weights.T)
-
-
-        loss_derivative_input = loss_derivative_input.reshape(self.input.shape)
-        return loss_derivative_input
-
-
-class Model(object):
-
-    def __init__(self):
-        self.layers = []
-        self.first_run = True
-
-    def feed_forward(self, X_batch):
-        if self.first_run:
-            self.first_run = False
-            #self.layers[0].set_first_layer()
-
-        data = X_batch
-        for l in self.layers:
-            data = l.feed_forward(data)
-        self.output = data
-
-    def loss(self, y_batch):
-        self.y_batch = y_batch
-        self.batch_size = len(self.y_batch)
-        idx_batch_size = range(self.batch_size)
-        loss = -np.log(self.output[idx_batch_size, self.y_batch])
-        accuracy = self.output.argmax(1) == self.y_batch
-        return loss.mean(), accuracy.mean()
-
-    def back_prop(self):
-        loss_grad = np.zeros_like(self.output)
-        idx_batch_size = range(self.batch_size)
-        loss_grad[idx_batch_size, self.y_batch] = -(self.output[
-            idx_batch_size, self.y_batch]) ** -1
-        for l in self.layers[::-1]:
-            loss_grad = l.back_prop(loss_grad)
-
-    def update(self):
-        for l in self.layers[::-1]:
-            l.update_weights()
-
-    def feed_forward_and_back_prop(self, X_batch, y_batch):
-        self.feed_forward(X_batch)
-        loss, accuracy = self.loss(y_batch)
-        self.back_prop()
-        self.update()
-        return loss, accuracy
 
 
 if __name__ == '__main__':

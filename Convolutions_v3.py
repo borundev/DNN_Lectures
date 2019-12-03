@@ -1,32 +1,21 @@
 
-from Convolutions import *
+import sys
+if sys.platform=='darwin':
+    print('Setting KMP_DUPLICATE_LIB_OK')
+    import os
+    os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-class Layer(object):
+import numpy as np
+from scipy.signal import convolve2d
+from tensorflow import keras
+from utility_functions import relu, averager, extract_averager_value, np_random_normal, batch_generator
 
-    def __init__(self, weights, trainable=True, learning_rate=0.001, name=None, first_layer=False):
-        self.learning_rate = learning_rate
-        self.weights = weights.copy() if weights is not None else None
-        self.first_feed_forward = True
-        self.first_back_prop = True
-        self.first_layer = first_layer
-        self.trainable = trainable
-        self.name = name
+from Layer import Layer, ActivationFunction
+from DenseSoftmax import DenseSoftmax
 
-    def feed_forward(self, prev_layer):
-        raise NotImplementedError
-
-    def on_first_feed_forward(self):
-        pass
+from Model import Model
 
 
-    def back_prop(self, next_layer_loss_gradient):
-        raise NotImplementedError
-
-    def update_weights(self):
-        if self.trainable:
-            np.add(self.weights,
-                   -self.learning_rate * self.loss_derivative_weights,
-                   out=self.weights)
 
 
 
@@ -45,7 +34,13 @@ class CNN(Layer):
             self.padding_1,self.padding_2=self.padding
         self.stride_1, self.stride_2 = self.stride
 
-
+    def __getattr__(self, item):
+        if item=='padding_1':
+            return self.filter_size_1//2
+        elif item=='padding_2':
+            return self.filter_size_2//2
+        else:
+            raise AttributeError('{} has not attribute {}'.format(self.__class__,item))
 
     def _make_combined_indx_for_reverse_weights(self):
         idx=np.concatenate([np.arange(self.num_channels) + i * self.num_channels for i in
@@ -115,7 +110,7 @@ class CNN(Layer):
 
         return self._transform(x,
                             force_padding=(max(k1 - 1 - padding_1, 0), max(k2 - 1 - padding_2, 0))
-                            )#[:,:n1,:n2]
+                            )[:,:n1,:n2]
 
 
 
