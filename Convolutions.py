@@ -271,16 +271,6 @@ if __name__ == '__main__':
                           first_layer=True
                           ),
             ActivationFunction(relu),
-            #Convolution2D(weights=W11, name='Conv2', trainable=True,
-            #              activation=relu,
-            #              learning_rate=learning_rate,
-            #              first_layer=False
-            #              ),
-            #ActivationFunction(relu),
-            #Convolution2D(shape=(5, 5, num_filters, num_filters), trainable=True,
-            #              name='Conv2'),
-            # Convolution2D(shape=(3, 3, num_filters, num_filters), trainable=True,
-            #              name='Conv3'),
             DenseSoftmax(output_dimension=10,
                          name='DenseSoftmax', trainable=True, learning_rate=learning_rate)
         ]

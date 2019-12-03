@@ -1,4 +1,4 @@
-from DNN_Lectures.utility_functions import np_random_normal
+from utility_functions import np_random_normal
 from Layer import Layer
 import numpy as np
 
