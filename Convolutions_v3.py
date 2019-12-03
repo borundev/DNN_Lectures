@@ -85,22 +85,36 @@ class CNN(Layer):
         mb, n1, n2, ch = x.shape
 
         p1_left = self.padding_1 + 1 - self.filter_size_1
-        p1_right = self.padding_1
+        #p1_right = self.padding_1
 
         p2_left = self.padding_2 + 1 - self.filter_size_2
-        p2_right = self.padding_2
+        #p2_right = self.padding_2
 
-        d1 = p1_right - p1_left
-        d2 = p2_right - p2_left
+        #d1 = p1_right - p1_left
+        #d2 = p2_right - p2_left
 
-        f1 = x.shape[1] - max(0, p1_left)
-        f2 = x.shape[2] - max(0, p2_left)
-        y = np.zeros(shape=(x.shape[0], x.shape[1] + d1, x.shape[2] +
-                                     d2, x.shape[3]))
+        # start position in x
+        i1=max(0, p1_left)
+        i2=max(0, p2_left)
+
+        # start position in y
+        #iy1=max(0, -p1_left)
+        #iy2=max(0, -p2_left)
+        iy1=i1-p1_left
+        iy2=i2-p2_left
+
+        # size of array taken from x
+        f1 = x.shape[1] - i1
+        f2 = x.shape[2] - i2
+        y = np.zeros(shape=(x.shape[0],
+                            x.shape[1] + self.filter_size_1 - 1,
+                            x.shape[2] + self.filter_size_2 - 1,
+                            x.shape[3])
+                     )
         y[:,
-            max(0, -p1_left):max(0, -p1_left) + f1,
-            max(0, -p2_left):max(0, -p2_left) + f2
-        ] = x[:, max(0, p1_left):, max(0, p2_left):, :]
+            iy1:iy1 + f1,
+            iy2:iy2 + f2
+        ] = x[:, i1:, i2:, :]
 
         en1,en2 = y.shape[1],y.shape[2]
 
@@ -219,6 +233,8 @@ if __name__ == '__main__':
             CNN(weights=W1,
                 name='Conv1',
                 trainable=True,
+                stride=(2,3),
+                padding=(1,0)
                 ),
             ActivationFunction(relu),
             DenseSoftmax(output_dimension=num_categories,
