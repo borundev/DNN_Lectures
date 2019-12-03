@@ -5,7 +5,7 @@ class Layer(object):
 
     def __init__(self, weights, trainable=True, learning_rate=0.001, name=None, first_layer=False):
         self.learning_rate = learning_rate
-        self.weights = weights.copy()
+        self.weights = weights.copy() if weights is not None else None
         self.first_feed_forward = True
         self.first_back_prop = True
         self.first_layer = first_layer
@@ -14,6 +14,10 @@ class Layer(object):
 
     def feed_forward(self, prev_layer):
         raise NotImplementedError
+
+    def on_first_feed_forward(self):
+        pass
+
 
     def back_prop(self, next_layer_loss_gradient):
         raise NotImplementedError
@@ -36,9 +40,10 @@ class CNN(Layer):
         super().__init__(weights,**kwargs)
         self._make_combined_indx_for_reverse_weights()
         self.stride=stride
-        if padding is not None:
-            raise NotImplementedError('Customized padding not yet supported yet')
         self.padding=padding
+        if self.padding:
+            self.padding_1,self.padding_2=self.padding
+        self.stride_1, self.stride_2 = self.stride
 
 
 
@@ -54,13 +59,16 @@ class CNN(Layer):
     def _get_reverse_weights(self):
         return self.weights.take(self.combined_indx)
 
-    def _transform(self,x,stride=(1,1)):
+    def _transform(self,x,stride=(1,1),force_padding=False):
         k1, k2 = (self.filter_size_1, self.filter_size_2)
-        if not self.padding:
-            padding_1 = self.filter_size_1 // 2
-            padding_2 = self.filter_size_2 // 2
+        if not force_padding:
+            if not self.padding:
+                padding_1 = self.filter_size_1 // 2
+                padding_2 = self.filter_size_2 // 2
+            else:
+                padding_1, padding_2 = self.padding
         else:
-            padding_1, padding_2 = self.padding
+            padding_1, padding_2=force_padding
         mb, n1, n2, ch = x.shape
         stride_1,stride_2=stride
         ex1=int((n1+2*padding_1-self.filter_size_1)/stride_1)+1
@@ -71,10 +79,7 @@ class CNN(Layer):
 
         s1 = np.arange(en1 - k1 + 1)
         s2 = np.arange(en2 - k2 + 1)
-
-        start_idx2 = (s1[padding_1-self.filter_size_1 // 2::stride_1, None] * en2 * ch + s2[None,
-                                                                     padding_2-self.filter_size_2//2::stride_2] *
-                      ch)
+        start_idx2 = (s1[::stride_1, None] * en2 * ch + s2[None,::stride_2] *ch)
         g1 = np.arange(self.filter_size_1)
         g2 = np.arange(self.filter_size_2)
         g3 = np.arange(ch)
@@ -100,24 +105,28 @@ class CNN(Layer):
 
 
         en1, en2 = n1 + 2 * padding_1, n2 + 2 * padding_2
-        s1 = np.arange(en1 - k1 + 1)
-        s2 = np.arange(en2 - k2 + 1)
+        #s1 = np.arange(en1 - k1 + 1)
+        #s2 = np.arange(en2 - k2 + 1)
+        #s1=np.arange(self.filter_size_1 // 2 - padding_1,n1+1,stride_1)
+        #s2 = np.arange(self.filter_size_2 // 2 - padding_2, n2+1, stride_2)
+        x = np.zeros(shape=(mb,stride_1*der_y.shape[1],stride_2*der_y.shape[2],der_y.shape[3]))
 
-        x = np.zeros(shape=(list(self.prev_layer.shape[:-1]) + [der_y.shape[-1]]))
-        x[  :,
-            s1[padding_1 - self.filter_size_1 // 2::stride_1, None],
-            s2[None, padding_2 - self.filter_size_2 // 2::stride_2],
-            :
-        ]=der_y
+        x[:,::stride_1,::stride_2]=der_y
 
-        return self._transform(x)
+        return self._transform(x,
+                            force_padding=(max(k1 - 1 - padding_1, 0), max(k2 - 1 - padding_2, 0))
+                            )#[:,:n1,:n2]
 
 
 
     def feed_forward(self, prev_layer):
+        if self.first_feed_forward:
+            self.first_feed_forward=False
+            super().on_first_feed_forward()
+
         self.prev_layer=prev_layer
         self.prev_layer_transformed=self._transform(prev_layer,self.stride)
-        return np.matmul(self.prev_layer_transformed,self.weights)+ self.bias
+        return np.matmul(self.prev_layer_transformed,self.weights) #+ self.bias
 
     def back_prop(self, next_layer_loss_gradient):
 
@@ -132,10 +141,11 @@ class CNN(Layer):
 
     def update_weights(self):
         if self.trainable:
-            np.add(self.bias,
-                   -self.learning_rate * self.loss_drivative_bias,
-                   out=self.bias
-                   )
+            #np.add(self.bias,
+            #       -self.learning_rate * self.loss_drivative_bias,
+            #       out=self.bias
+            #       )
+            pass
         super().update_weights()
 
 if __name__ == '__main__':
@@ -180,34 +190,37 @@ if __name__ == '__main__':
 
     import time
 
-    for num_filters in (10,):
+    for num_filters in (5,):
+        np.random.seed(42)
         t0 = time.time()
         print('Training with num_filters ', num_filters)
-        np.random.seed(42)
-        W1 = np.random.normal(0, 1 / np.sqrt(3 * 3 * input_num_channels),
+        W1 = np_random_normal(0, 1 / np.sqrt(3 * 3 * input_num_channels),
                               size=(3, 3, input_num_channels, num_filters))
-        W11=np.random.normal(0, 1 / np.sqrt(3 * 3 * num_filters),
-                              size=(3, 3, num_filters, num_filters))
-        W2 = np.random.normal(0, 1 / np.sqrt(
-            num_filters * input_image_size * input_image_size),
-                              size=((num_filters * input_image_size * input_image_size)//6,
-                                    num_categories))
+        #W11=np.random.normal(0, 1 / np.sqrt(3 * 3 * num_filters),
+        #                      size=(3, 3, num_filters, num_filters))
+        #W2 = np.random.normal(0, 1 / np.sqrt(
+        #    num_filters * input_image_size * input_image_size),
+        #                      size=((num_filters * 32 * 32),
+        #                            num_categories))
 
         m = Model()
         learning_rate=0.001
         m.layers = [
-            CNN(weights=W1, name='Conv1', trainable=True,
-                          first_layer=True,stride=(2,3)
-                          ),
+            CNN(weights=W1,
+                name='Conv1',
+                trainable=True,
+                stride=(1,1)
+                ),
             ActivationFunction(relu),
-            CNN(weights=W11, name='Conv2', trainable=True,
-                          ),
-            ActivationFunction(relu),
+            #CNN(weights=W11,
+            #    name='Conv2',
+            #    trainable=True),
+            #ActivationFunction(relu),
             #Convolution2D(shape=(5, 5, num_filters, num_filters), trainable=True,
             #              name='Conv2'),
             # Convolution2D(shape=(3, 3, num_filters, num_filters), trainable=True,
             #              name='Conv3'),
-            DenseSoftmax(weights=W2,
+            DenseSoftmax(output_dimension=num_categories,
                          name='DenseSoftmax', trainable=True, learning_rate=learning_rate)
         ]
 
