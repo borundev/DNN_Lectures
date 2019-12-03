@@ -3,7 +3,7 @@ import sys
 import numpy as np
 from scipy.signal import convolve
 from tensorflow import keras
-from utility_functions import relu, averager, extract_averager_value
+from utility_functions import relu, averager, extract_averager_value, np_random_normal
 
 def relu_prime(x):
     return relu(x,der=True)
@@ -86,17 +86,13 @@ num_steps = len(y_train) // batch_size
 
 def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
     if not W1:
-        np.random.seed(42)
-        W1 = np.random.normal(0, 1 / np.sqrt(K * K * num_channels),
+        W1 = np_random_normal(0, 1 / np.sqrt(K * K * num_channels),
                               size=(K, K, num_channels, num_filters))
     if not W2:
-        state=np.random.get_state()
-        np.random.seed(42)
-        W2 = np.random.normal(0, 1 / np.sqrt(
+        W2 = np_random_normal(0, 1 / np.sqrt(
             num_filters * image_size * image_size),
                               size=(num_filters * image_size * image_size,
                                     num_categories))
-        np.random.set_state(state)
     idx_batch_size = list(range(batch_size))
     lt0 = np.zeros((batch_size,
                     image_size_embedding_size,
@@ -128,7 +124,7 @@ def train(num_filters, W1=None, W2=None, train_W1=True, train_W2=True):
             #    for j in range(num_filters):
             #        l0_conv[n, :, :, j] = convolve(l0[n], W1[::-1, ::-1,
             #        ::-1, j], 'same')[:, :,
-            #                              num_channels // 2]
+            #                              num_randomchannels // 2]
             # l1[:] = 0
             # f1p[:] = 0
             # l1[:] = relu(l0_conv)
@@ -214,6 +210,7 @@ import time
 
 for num_filters in (5,):
     t0=time.time()
+    np.random.seed(42)
     train(num_filters)
     t1=time.time()
     print('Total time',t1-t0)
