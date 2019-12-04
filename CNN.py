@@ -1,21 +1,13 @@
-
-import sys
-if sys.platform=='darwin':
-    print('Setting KMP_DUPLICATE_LIB_OK')
-    import os
-    os.environ['KMP_DUPLICATE_LIB_OK']='True'
-
 import numpy as np
 
 from Layer import Layer
-
-
 class CNN(Layer):
 
-    def __init__(self, weights=None,stride=None,padding=None, **kwargs):
+    def __init__(self, weights=None,stride=None,padding=None,bias=False, **kwargs):
         self.filter_size_1, self.filter_size_2, self.num_channels, self.num_filters = weights.shape
         weights = weights.reshape(-1, self.num_filters)
-        self.bias=np.zeros(shape=self.num_filters)
+        if bias:
+            self.bias=np.zeros(shape=self.num_filters)
         super().__init__(weights,**kwargs)
         self._make_combined_indx_for_reverse_weights()
         if padding:
