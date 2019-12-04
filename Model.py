@@ -1,4 +1,10 @@
 import numpy as np
+
+
+# TODO: This only handle categorical cross entropy in loss and backprop (the first
+# step  uses loss derivative assuming categorical cross entropy)
+# but can easily be extended to use others
+
 class Model(object):
 
     def __init__(self):
@@ -14,6 +20,7 @@ class Model(object):
         for l in self.layers:
             data = l.feed_forward(data)
         self.output = data
+        return self.output
 
     def loss(self, y_batch):
         self.y_batch = y_batch
