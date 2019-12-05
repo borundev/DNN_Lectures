@@ -9,6 +9,7 @@ class MaxPool(Layer):
         else:
             self.feed_forward = lambda x: x
             self.back_prop = lambda x: x
+        self.trainable=False
 
     def feed_forward(self, y):
         mb, n1, n2, ch = y.shape
