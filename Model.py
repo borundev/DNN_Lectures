@@ -11,14 +11,14 @@ class Model(object):
         self.layers = []
         self.first_run = True
 
-    def feed_forward(self, X_batch):
+    def feed_forward(self, X_batch, training=True):
         if self.first_run:
             self.first_run = False
             #self.layers[0].set_first_layer()
 
         data = X_batch
         for l in self.layers:
-            data = l.feed_forward(data)
+            data = l.feed_forward(data,training=training)
         self.output = data
         return self.output
 

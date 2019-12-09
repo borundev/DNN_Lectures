@@ -12,7 +12,7 @@ class Layer(object):
         self.trainable = trainable
         self.name = name
 
-    def feed_forward(self, prev_layer):
+    def feed_forward(self, prev_layer,**kwargs):
         raise NotImplementedError
 
     def on_first_feed_forward(self):
@@ -39,7 +39,7 @@ class ActivationFunction(Layer):
         self.activation_function = activation_function
         self.trainable = False
 
-    def feed_forward(self, prev_layer):
+    def feed_forward(self, prev_layer, **kwargs):
         self.prev_layer = prev_layer
         return self.activation_function(prev_layer)
 

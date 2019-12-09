@@ -14,7 +14,7 @@ class DenseSoftmax(Layer):
         self.num_categories = self.weights.shape[-1] if self.weights is not None else output_dimension
         self.batch_size = None
 
-    def feed_forward(self, X_batch):
+    def feed_forward(self, X_batch, **kwargs):
         if self.first_feed_forward:
             self.first_feed_forward = False
             self.batch_size = len(X_batch)

@@ -11,7 +11,7 @@ class MaxPool(Layer):
             self.back_prop = lambda x: x
         self.trainable=False
 
-    def feed_forward(self, y):
+    def feed_forward(self, y, training=True):
         mb, n1, n2, ch = y.shape
         if not hasattr(self,
                        'mb') or mb != self.mb or n1 != self.n1 or n2 != self.n2 or ch != self.ch:
