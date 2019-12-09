@@ -1,17 +1,41 @@
 import numpy as np
 
 from Layer import Layer
+from utility_functions import np_random_normal
 
 
 class CNN(Layer):
 
-    def __init__(self, weights=None, stride=None, padding=None, bias=False, **kwargs):
-        self.filter_size_1, self.filter_size_2, self.num_channels, self.num_filters = weights.shape
-        weights = weights.reshape(-1, self.num_filters)
+    def __init__(self, weights=None,
+                 num_filters=None,
+                 kernel_size=None,
+                 stride=None,
+                 padding=None,
+                 bias=False, **kwargs):
+
+        if weights is not None:
+            self.filter_size_1, self.filter_size_2, self.num_channels, self.num_filters = weights.shape
+            kernel_size=self.filter_size_1, self.filter_size_2
+
+            weights = weights.reshape(-1, self.num_filters)
+            self._make_combined_indx_for_reverse_weights()
+
+        super().__init__(weights, **kwargs)
+
         if bias:
             self.bias = np.zeros(shape=self.num_filters)
-        super().__init__(weights, **kwargs)
-        self._make_combined_indx_for_reverse_weights()
+
+        if num_filters:
+            self.num_filters=num_filters
+
+        if kernel_size:
+            if type(kernel_size) in [list,tuple]:
+                self.filter_size_1, self.filter_size_2 = kernel_size
+            else:
+                self.filter_size_1=self.filter_size_2=kernel_size
+        else:
+            raise ValueError('kernel size must be given either expliitely or implicitely as the '
+                             'shape of weight tensor')
         if padding:
             self.padding_1, self.padding_2 = padding
         if stride:
@@ -25,7 +49,7 @@ class CNN(Layer):
         elif item in ('stride_1', 'stride_2'):
             return 1
         else:
-            raise AttributeError('{} has not attribute {}'.format(self.__class__, item))
+            raise AttributeError('{} does not have attribute {}'.format(self.__class__, item))
 
     def _make_combined_indx_for_reverse_weights(self):
         idx = np.concatenate([np.arange(self.num_channels) + i * self.num_channels for i in
@@ -131,6 +155,15 @@ class CNN(Layer):
             self.first_feed_forward = False
             super().on_first_feed_forward()
 
+            if self.weights is None:
+                self.num_channels=prev_layer.shape[3]
+                self.weights = np_random_normal(0, 1, size=[self.filter_size_1,
+                                                            self.filter_size_2,
+                                                            self.num_channels,
+                                                            self.num_filters])
+                self.weights = self.weights.reshape(-1, self.num_filters)
+                self._make_combined_indx_for_reverse_weights()
+                
         self.prev_layer = prev_layer
         self.prev_layer_transformed = self._transform(prev_layer)
         res = np.matmul(self.prev_layer_transformed, self.weights)
