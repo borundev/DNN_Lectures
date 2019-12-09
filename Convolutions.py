@@ -1,4 +1,7 @@
 import sys
+
+from Flatten import Flatten
+
 if sys.platform=='darwin':
     print('Setting KMP_DUPLICATE_LIB_OK')
     import os
@@ -35,11 +38,11 @@ class Convolution2D(Layer):
         self.activation=activation
 
         # With all true 1423.0891828536987
-        self.use_fancy_indexing_for_feed_forward=True
-        self.use_fancy_indexing_for_back_prop=True
-        self.use_fancy_indexing_for_weight_update=True
+        self.use_fancy_indexing_for_feed_forward=False
+        self.use_fancy_indexing_for_back_prop=False
+        self.use_fancy_indexing_for_weight_update=False
 
-    def feed_forward(self, X_batch):
+    def feed_forward(self, X_batch, **kwargs):
         if self.first_feed_forward:  # First run
             self.first_feed_forward = False
             self.batch_size = len(X_batch)
@@ -271,6 +274,7 @@ if __name__ == '__main__':
                           first_layer=True
                           ),
             ActivationFunction(relu),
+            Flatten(),
             DenseSoftmax(output_dimension=10,
                          name='DenseSoftmax', trainable=True, learning_rate=learning_rate)
         ]
@@ -300,7 +304,7 @@ if __name__ == '__main__':
                                                                 len(
                                                                     y_valid) //
                                                                 batch_size):
-                m.feed_forward(X_valid_batch)
+                m.feed_forward(X_valid_batch, )
                 loss, accuracy = m.loss(y_valid_batch)
                 loss_averager_valid.send(loss.mean())
                 accuracy_averager_valid.send(accuracy.mean())

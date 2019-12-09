@@ -21,13 +21,12 @@ class DenseSoftmax(Layer):
             self.idx_batch_size = range(self.batch_size)
             if self.weights is None:
                 print("initiating")
-                shape=(X_batch.reshape(self.batch_size, -1).shape[1],self.output_dimension)
+                shape=(X_batch.shape[1],self.output_dimension)
                 self.weights=np_random_normal(0,1/np.sqrt(shape[0]),size=shape)
             super().on_first_feed_forward()
 
         self.input = X_batch
-        input_dot_weights = self.input.reshape(self.batch_size, -1).dot(
-            self.weights)
+        input_dot_weights = self.input.dot(self.weights)
 
         p_un = np.exp(input_dot_weights)
         self.output = p_un / p_un.sum(1)[:, None]
@@ -49,6 +48,4 @@ class DenseSoftmax(Layer):
 
         loss_derivative_input = ct2.dot(self.weights.T)
 
-
-        loss_derivative_input = loss_derivative_input.reshape(self.input.shape)
         return loss_derivative_input
