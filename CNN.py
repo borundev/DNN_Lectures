@@ -163,7 +163,7 @@ class CNN(Layer):
                                                             self.num_filters])
                 self.weights = self.weights.reshape(-1, self.num_filters)
                 self._make_combined_indx_for_reverse_weights()
-                
+
         self.prev_layer = prev_layer
         self.prev_layer_transformed = self._transform(prev_layer)
         res = np.matmul(self.prev_layer_transformed, self.weights)
@@ -173,11 +173,13 @@ class CNN(Layer):
 
     def back_prop(self, next_layer_loss_gradient):
 
-        self.loss_drivative_bias = np.sum(next_layer_loss_gradient, axis=(0, 1, 2))
-        # Do we want sum or average along minibatch direction?
-        self.loss_derivative_weights = np.tensordot(self.prev_layer_transformed,
-                                                    next_layer_loss_gradient,
-                                                    axes=[[0, 1, 2], [0, 1, 2]])
+        if self.trainable:
+            if hasattr(self,'bias'):
+                self.loss_drivative_bias = np.sum(next_layer_loss_gradient, axis=(0, 1, 2))
+            # Do we want sum or average along minibatch direction?
+            self.loss_derivative_weights = np.tensordot(self.prev_layer_transformed,
+                                                        next_layer_loss_gradient,
+                                                        axes=[[0, 1, 2], [0, 1, 2]])
 
         next_layer_loss_gradient_transformed = self._transform_back(next_layer_loss_gradient)
         return np.matmul(next_layer_loss_gradient_transformed, self._get_reverse_weights())

@@ -20,7 +20,6 @@ class DenseSoftmax(Layer):
             self.batch_size = len(X_batch)
             self.idx_batch_size = range(self.batch_size)
             if self.weights is None:
-                print("initiating")
                 shape=(X_batch.shape[1],self.output_dimension)
                 self.weights=np_random_normal(0,1/np.sqrt(shape[0]),size=shape)
             super().on_first_feed_forward()

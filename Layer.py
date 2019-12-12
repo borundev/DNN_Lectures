@@ -16,7 +16,8 @@ class Layer(object):
         raise NotImplementedError
 
     def on_first_feed_forward(self):
-        pass
+        self.first_feed_forward = False
+
 
     def back_prop(self, next_layer_loss_gradient):
         raise NotImplementedError
