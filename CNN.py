@@ -1,4 +1,5 @@
 import numpy as np
+from Dense import Dense
 
 from Layer import Layer
 from utility_functions import np_random_normal
@@ -19,11 +20,11 @@ class CNN(Layer):
 
             weights = weights.reshape(-1, self.num_filters)
             self._make_combined_indx_for_reverse_weights()
+            self.dense=Dense(weights=weights,bias=bias, first_layer=True)
+        else:
+            self.dense=Dense(output_dimension=num_filters,bias=bias, first_layer=True)
+        super().__init__(weights=None, **kwargs)
 
-        super().__init__(weights, **kwargs)
-
-        if bias:
-            self.bias = np.zeros(shape=self.num_filters)
 
         if num_filters:
             self.num_filters=num_filters
@@ -61,7 +62,7 @@ class CNN(Layer):
         self.combined_indx = (rows * self.num_filters + cols).reshape(-1, self.num_channels)
 
     def _get_reverse_weights(self):
-        return self.weights.take(self.combined_indx)
+        return self.dense.weights.take(self.combined_indx)
 
     def _transform(self, x):
         mb, n1, n2, ch = x.shape
@@ -151,35 +152,23 @@ class CNN(Layer):
         return self._transform2(x)[:, :n1, :n2]
 
     def feed_forward(self, prev_layer, **kwargs):
-        if self.first_feed_forward:
-            self.first_feed_forward = False
-            super().on_first_feed_forward()
-
-            if self.weights is None:
-                self.num_channels=prev_layer.shape[3]
-                self.weights = np_random_normal(0, 1, size=[self.filter_size_1,
-                                                            self.filter_size_2,
-                                                            self.num_channels,
-                                                            self.num_filters])
-                self.weights = self.weights.reshape(-1, self.num_filters)
-                self._make_combined_indx_for_reverse_weights()
 
         self.prev_layer = prev_layer
         self.prev_layer_transformed = self._transform(prev_layer)
-        res = np.matmul(self.prev_layer_transformed, self.weights)
-        if hasattr(self, 'bias'):
-            np.add(res, self.bias, out=res)
+        res=self.dense.feed_forward(self.prev_layer_transformed)
+        if self.first_feed_forward:
+            self.num_channels=prev_layer.shape[3]
+            self._make_combined_indx_for_reverse_weights()
+            super().on_first_feed_forward()
+
         return res
 
     def back_prop(self, next_layer_loss_gradient):
 
-        if self.trainable:
-            if hasattr(self,'bias'):
-                self.loss_drivative_bias = np.sum(next_layer_loss_gradient, axis=(0, 1, 2))
-            # Do we want sum or average along minibatch direction?
-            self.loss_derivative_weights = np.tensordot(self.prev_layer_transformed,
-                                                        next_layer_loss_gradient,
-                                                        axes=[[0, 1, 2], [0, 1, 2]])
+        self.dense.back_prop(next_layer_loss_gradient)
 
         next_layer_loss_gradient_transformed = self._transform_back(next_layer_loss_gradient)
         return np.matmul(next_layer_loss_gradient_transformed, self._get_reverse_weights())
+
+    def update_weights(self):
+        self.dense.update_weights()
