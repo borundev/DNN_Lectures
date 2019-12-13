@@ -21,9 +21,11 @@ class Dense(Layer):
                 self.weights=np_random_normal(0,1/np.sqrt(shape[0]),size=shape)
             super().on_first_feed_forward()
         self.input=prev_layer
-        res=self.input.dot(self.weights)
+        res=np.matmul(self.input, self.weights)
+        # why is dot so much slower than matmul?
+        #res=self.input.dot(self.weights)
         if hasattr(self, 'bias'):
-            np.add(res, self.bias, out=res)
+            np.add(res, self.bias,out=res)
         return res
 
     def back_prop(self, next_layer_loss_gradient):
