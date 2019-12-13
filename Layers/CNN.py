@@ -1,8 +1,7 @@
 import numpy as np
-from Dense import Dense
+from Layers.Dense import Dense
 
-from Layer import Layer
-from utility_functions import np_random_normal
+from Layers.Layer import Layer
 
 
 class CNN(Layer):

@@ -1,4 +1,4 @@
-from Layer import Layer
+from Layers.Layer import Layer
 import  numpy as np
 
 class MaxPool(Layer):

@@ -1,4 +1,4 @@
-from Layer import Layer
+from Layers.Layer import Layer
 from utility_functions import np_random_normal
 import numpy as np
 
