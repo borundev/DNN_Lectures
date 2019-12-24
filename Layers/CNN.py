@@ -63,87 +63,43 @@ class CNN(Layer):
     def _get_reverse_weights(self):
         return self.dense.weights.take(self.combined_indx)
 
-    def _transform(self, x):
+    def _prepare(self,x):
         mb, n1, n2, ch = x.shape
         en1, en2 = n1 + 2 * self.padding_1, n2 + 2 * self.padding_2
         y = np.zeros((mb, en1, en2, ch))
-        y[:, self.padding_1:n1 + self.padding_1, self.padding_2:n2 + self.padding_2, :] = x
-        return self._take(y,(self.stride_1,self.stride_2))
+        y[:, self.padding_1:n1 + self.padding_1,
+            self.padding_2:n2 + self.padding_2, :] = x
+        return y
 
-
-    def _take(self,y,stride=(1,1)):
-        """
-        Takes a 4 dimensional array that is an image with the indices being the minibatch, row,
-        column and channel. It returns a 4 dimensional array where the first 3 indices are the same
-        but the 4th containes all the elements in a cuboid that will get multiplied with flattened
-        convolution filters defined on the respective channels.
-
-
-        :param y:
-        :param stride:
-        :return:
-        """
-        stride_1,stride_2=stride
-        mb, en1, en2, ch = y.shape
-
-        # Till we discuss the minibatch index, all comments are for the first image
-
-        # Make a 2d array of indices of the top-left edges of the windows from which to
-        # take elements. These are to be the indices on the first channel. This makes the indices
-        # the top-left-back end of the cuboid to be taken
-        s1 = np.arange(0,en1 - self.filter_size_1 + 1, stride_1)
-        s2 = np.arange(0,en2 - self.filter_size_2 + 1, stride_2)
-        start_idx = (s1[:, None] * en2 * ch + s2[None, :] * ch)
-
-        # Make a grid of elements to be taken in the entire cuboid whose top-left-back
-        # indices we have taken above. This is done only for the first of the above cuboids in mind.
-        # Note the cuboid elements are flattened and will now be along the 4th direction of the
-        # output
-        g1 = np.arange(self.filter_size_1)
-        g2 = np.arange(self.filter_size_2)
-        g3 = np.arange(ch)
-        grid = (g1[:, None, None] * en2 * ch + g2[None, :, None] *
-                 ch + g3[None, None, :]).ravel()
-
-        # Combine the above two to make a 3d array which corresponds to just the first image in a
-        # minibatch.
-        grid_to_take = start_idx[:, :, None] + grid[None, None, :]
-
-        # Make and index for the starting entry in every image in a minibatch
-        batch = np.array(range(0, mb)) * ch * en1 * en2
-
-        # This is the final result
-        res = y.take(batch[:, None, None, None] + grid_to_take[None, :, :, :])
-        return res
-
-    def _transform_back(self, der_y):
+    def _prepare_back(self,der_y):
         mb, n1, n2, _ = self.prev_layer.shape
         ch = der_y.shape[3]
 
-        m1= max(self.stride_1 * der_y.shape[1], n1)
+        m1 = max(self.stride_1 * der_y.shape[1], n1)
         m2 = max(self.stride_2 * der_y.shape[2], n2)
 
-        z = np.zeros(shape=(mb,m1,m2,ch))
-        y = np.zeros(shape=(mb, m1 + self.filter_size_1 - 1, m2 + self.filter_size_2 - 1,ch))
+        z = np.zeros(shape=(mb, m1, m2, ch))
+        y = np.zeros(shape=(
+        mb, m1 + self.filter_size_1 - 1, m2 + self.filter_size_2 - 1, ch))
 
         z[:,
-            :self.stride_1 * der_y.shape[1]:self.stride_1,
-            :self.stride_2 * der_y.shape[2]:self.stride_2
+        :self.stride_1 * der_y.shape[1]:self.stride_1,
+        :self.stride_2 * der_y.shape[2]:self.stride_2
         ] = der_y
-
 
         p1_left = self.padding_1 + 1 - self.filter_size_1
         p2_left = self.padding_2 + 1 - self.filter_size_2
 
-        # i1,i2 are the start positions in z and iy1,iy2 are the start positions in y
-        i1=i2=iy1=iy2=0
+        # i1,i2 are the start positions in z and iy1,iy2 are the start
+        # positions in y
+        i1 = i2 = iy1 = iy2 = 0
 
-        if p1_left>0:
+        if p1_left > 0:
             i1 = p1_left
         else:
             iy1 = -p1_left
 
-        if p2_left>0:
+        if p2_left > 0:
             i2 = p2_left
         else:
             iy2 = -p2_left
@@ -153,12 +109,68 @@ class CNN(Layer):
         f2 = z.shape[2] - i2
 
         y[:,
-            iy1:iy1 + f1,
-            iy2:iy2 + f2
+        iy1:iy1 + f1,
+        iy2:iy2 + f2
         ] = z[:, i1:, i2:, :]
+        return y
 
-        return self._take(y)[:,:n1,:n2]
+    def _take(self, y, stride=(1, 1)):
+        """
+        Takes a 4 dimensional array that is an image with the indices being
+        the minibatch, row, column and channel. It returns a 4 dimensional
+        array where the first 3 indices are the same but the 4th containes
+        all the elements in a cuboid that will get multiplied with flattened
+        convolution filters defined on the respective channels.
 
+
+        :param y:
+        :param stride:
+        :return:
+        """
+        stride_1, stride_2 = stride
+        mb, en1, en2, ch = y.shape
+
+        # Till we discuss the minibatch index, all comments are for the first
+        # image
+
+        # Make a 2d array of indices of the top-left edges of the windows
+        # from which to take elements. These are to be the indices on the
+        # first channel. This makes the indices the top-left-back end of the
+        # cuboid to be taken
+        s1 = np.arange(0, en1 - self.filter_size_1 + 1, stride_1)
+        s2 = np.arange(0, en2 - self.filter_size_2 + 1, stride_2)
+        start_idx = (s1[:, None] * en2 * ch + s2[None, :] * ch)
+
+        # Make a grid of elements to be taken in the entire cuboid whose
+        # top-left-back indices we have taken above. This is done only for
+        # the first of the above cuboids in mind.
+        # Note the cuboid elements are flattened and will now be along the
+        # 4th direction of the output
+        g1 = np.arange(self.filter_size_1)
+        g2 = np.arange(self.filter_size_2)
+        g3 = np.arange(ch)
+        grid = (g1[:, None, None] * en2 * ch + g2[None, :, None] *
+                ch + g3[None, None, :]).ravel()
+
+        # Combine the above two to make a 3d array which corresponds to just
+        # the first image in a minibatch.
+        grid_to_take = start_idx[:, :, None] + grid[None, None, :]
+
+        # Make and index for the starting entry in every image in a minibatch
+        batch = np.array(range(0, mb)) * ch * en1 * en2
+
+        # This is the final result
+        res = y.take(batch[:, None, None, None] + grid_to_take[None, :, :, :])
+        return res
+
+    def _transform(self, x):
+        y=self._prepare(x)
+        return self._take(y, (self.stride_1, self.stride_2))
+
+    def _transform_back(self, der_y):
+        _, n1, n2, _ = self.prev_layer.shape
+        y=self._prepare_back(der_y)
+        return self._take(y)[:, :n1, :n2]
 
     def feed_forward(self, prev_layer, **kwargs):
 
